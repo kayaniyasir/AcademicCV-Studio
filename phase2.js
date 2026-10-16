@@ -1,6 +1,9 @@
 'use strict';
 const imp=document.querySelector('#importDocument'), review=document.querySelector('#importReview'), info=document.querySelector('#importStatus');
 const setMessage=x=>{info.textContent=x};
+const LIMITS={reviewName:90,reviewTitle:100,reviewEmail:180,reviewPhone:45,reviewSummary:650,reviewExperience:1200,reviewEducation:800,reviewSkills:350};
+for(const [id,max] of Object.entries(LIMITS))document.getElementById(id).maxLength=max;
+
 const pick=(text,pattern)=>{const m=text.match(pattern);return m?m[1].trim():''};
 function parseCV(text){
 const rows=text.split(/\r?\n/).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
@@ -20,18 +23,18 @@ const education=section(['education','academic qualifications','qualifications']
 const skills=section(['skills','core competencies']).replace(/\n/g,', ');
 return {name,email,phone,title,summary,experience,education,skills};
 }
-function assignReview(data,text){for(const [key,id] of Object.entries({name:'reviewName',title:'reviewTitle',email:'reviewEmail',phone:'reviewPhone',summary:'reviewSummary',experience:'reviewExperience',education:'reviewEducation',skills:'reviewSkills'}))document.getElementById(id).value=data[key]||'';document.getElementById('extractedText').value=text;review.hidden=false;setMessage('Text extracted. Review and correct each proposed field before applying.');review.scrollIntoView({behavior:'smooth',block:'center'});}
-imp.addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;review.hidden=true;setMessage('Reading document locally...');try{if(f.size>10_000_000)throw Error('File exceeds 10 MB');const ext=f.name.split('.').pop().toLowerCase();let text='';
-if(ext==='pdf'){if(!window.pdfjsLib)throw Error('PDF library did not load; connect to the internet and retry.');pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;for(let i=1;i<=Math.min(pdf.numPages,40);i++){const page=await pdf.getPage(i),data=await page.getTextContent();{let priorY=null;for(const item of data.items){const y=item.transform?.[5];if(priorY!==null&&Number.isFinite(y)&&Math.abs(y-priorY)>3)text+='\n';else if(text&&!text.endsWith('\n'))text+=' ';text+=item.str||'';if(Number.isFinite(y))priorY=y;}text+='\n';}}}
+function assignReview(data,text){for(const [key,id] of Object.entries({name:'reviewName',title:'reviewTitle',email:'reviewEmail',phone:'reviewPhone',summary:'reviewSummary',experience:'reviewExperience',education:'reviewEducation',skills:'reviewSkills'}))document.getElementById(id).value=String(data[key]||'').slice(0,LIMITS[id]);document.getElementById('extractedText').value=text;review.hidden=false;setMessage('Text extracted. Review and correct each proposed field before applying.');review.scrollIntoView({behavior:'smooth',block:'center'});}
+imp.addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;review.hidden=true;setMessage('Reading document locally...');try{if(f.size>3*1024*1024)throw Error('Maximum file size is 3 MB. Please upload a shorter CV.');const ext=f.name.split('.').pop().toLowerCase();let text='';
+if(ext==='pdf'){if(!window.pdfjsLib)throw Error('PDF library did not load; connect to the internet and retry.');pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;if(pdf.numPages>5)throw Error('PDF upload is limited to 5 pages. Please shorten your CV.');for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i),data=await page.getTextContent();{let priorY=null;for(const item of data.items){const y=item.transform?.[5];if(priorY!==null&&Number.isFinite(y)&&Math.abs(y-priorY)>3)text+='\n';else if(text&&!text.endsWith('\n'))text+=' ';text+=item.str||'';if(Number.isFinite(y))priorY=y;}text+='\n';}}}
 else if(ext==='docx'){if(!window.mammoth)throw Error('DOCX extraction library did not load; connect to the internet.');const parsed=await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()});text=parsed.value||''}
 else throw Error('Choose a PDF or DOCX file.');
-if(text.trim().length<25)throw Error('Too little readable text. Scanned PDFs need OCR; please enter details manually.');assignReview(parseCV(text),text)}
+if(text.length>14000)throw Error('The extracted text is too long (maximum 14,000 characters). Please shorten your CV.');if(text.split(/\r?\n/).some(x=>x.length>650))throw Error('PDF text layout could not be parsed safely. Please try a simpler document or fill the form manually.');if(text.trim().length<25)throw Error('Too little readable text. Scanned PDFs need OCR; please enter details manually.');assignReview(parseCV(text),text)}
 catch(err){setMessage(err.message||'Unable to import this document.')}finally{e.target.value=''}});
 document.querySelector('#discardImport').onclick=()=>{review.hidden=true;setMessage('Import discarded; existing CV unchanged.')};
-document.querySelector('#applyImport').onclick=()=>{const app=window.AcademicCV;if(!app)return;const p=app.state.profile;
+document.querySelector('#applyImport').onclick=()=>{const app=window.AcademicCV;if(!app)return;const p=app.state.profile;const invalid=Object.entries(LIMITS).filter(([id,max])=>document.getElementById(id).value.trim().length>max);if(invalid.length){setMessage('Some imported fields exceed the length limits. Please shorten them first.');return;}const name=document.getElementById('reviewName').value.trim();if(name&&name.split(/\s+/).length>8){setMessage('The imported name looks incorrect. Please correct it first.');return;}
 const entries={fullName:'reviewName',jobTitle:'reviewTitle',email:'reviewEmail',phone:'reviewPhone',summary:'reviewSummary',skills:'reviewSkills'};for(const [k,id] of Object.entries(entries)){const v=document.getElementById(id).value.trim();if(v&&v.length<=(k==='summary'?1200:k==='fullName'?110:300))p[k]=v}
 const exp=document.getElementById('reviewExperience').value.trim();if(exp)app.state.experience.push({role:'Teaching experience (review details)',school:'',dates:'',highlights:exp});
-const edu=document.getElementById('reviewEducation').value.trim();if(edu)app.state.education.push({degree:'Imported education (review details)',school:edu.slice(0,350),dates:''});
+const edu=document.getElementById('reviewEducation').value.trim();if(edu)app.state.education.push({degree:'Imported education (review details)',school:edu,dates:''});
 app.fill();app.collect();review.hidden=true;setMessage('Reviewed information applied. Please verify the CV preview.');};
 document.querySelector('#exportWord').onclick=async()=>{const app=window.AcademicCV;app.collect();if(!window.docx){app.notice('Word export library unavailable. Connect to the internet and retry.');return}
 try{const {Document,Paragraph,TextRun,HeadingLevel,Packer}=docx,p=app.state.profile;
